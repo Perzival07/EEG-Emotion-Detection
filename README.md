@@ -2,12 +2,16 @@
 
 ## 1. **Organise** your file in the following order
 
+
+## Folder Structure
+
+```bash
 dataset/
 │
 ├── Angry/
 │   ├── angry1.csv
 │   ├── angry2.csv
-│   └── …
+│   └── ...
 ├── Happy/
 ├── Sad/
 ├── Frightened/
@@ -15,6 +19,7 @@ dataset/
 ├── Satisfied/
 ├── Surprise/
 └── Unconcerned/
+```
 
 
 ## 2. **Load**, **Label**, and **Combine** All Files
@@ -58,4 +63,5 @@ final_df = final_df.drop(columns=['Timestamp', 'OriginalTimestamp'], errors='ign
 
 # Save the final combined dataset
 final_df.to_csv("emotion_dataset.csv", index=False)
+```
 
