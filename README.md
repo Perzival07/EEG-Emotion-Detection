@@ -7,7 +7,7 @@ dataset/
 ├── Angry/
 │   ├── angry1.csv
 │   ├── angry2.csv
-│   └── ...
+│   └── …
 ├── Happy/
 ├── Sad/
 ├── Frightened/
@@ -20,12 +20,11 @@ dataset/
 ## 2. **Load**, **Label**, and **Combine** All Files
 
 Here’s a script to:
-    •    Walk through each folder,
-    •    Label each sample with its folder name (emotion),
-    •    Merge everything into one DataFrame,
-    •    Save as emotion_dataset.csv.
+- Walk through each folder,
+- Label each sample with its folder name (emotion),
+- Merge everything into one DataFrame,
+- Save as `emotion_dataset.csv`.
 
-<pre>
 ```python
 import os
 import pandas as pd
@@ -59,5 +58,4 @@ final_df = final_df.drop(columns=['Timestamp', 'OriginalTimestamp'], errors='ign
 
 # Save the final combined dataset
 final_df.to_csv("emotion_dataset.csv", index=False)
-```
-</pre>
+
