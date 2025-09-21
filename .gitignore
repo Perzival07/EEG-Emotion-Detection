@@ -1,33 +1,47 @@
-# Ignore dataset directories
-train/
-test/
-valid/
+# ===============================
+# Project-specific ignores
+# ===============================
 
-# Ignore trained model files
+# Dataset (large files not tracked in Git)
+dataset/
+*.zip
+
+# Model files (trained weights & metadata)
 *.keras
 *.h5
 *.pb
 *.tflite
+*.json
 
-# Ignore Python cache
+# Training logs (TensorBoard and others)
+logs/
+*.log
+*.ckpt
+checkpoints/
+
+# ===============================
+# Python-specific ignores
+# ===============================
+
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Ignore logs and checkpoints
-*.log
-*.zip
-*.ckpt
-checkpoints/
-
-# Ignore Jupyter notebook checkpoints
-.ipynb_checkpoints/
-
-# Ignore virtual environment
+# Virtual environments
 venv/
 .env/
+*.conda
+*.egg-info/
 
-# Ignore system files
+# ===============================
+# Jupyter Notebook ignores
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# OS / Editor files
+# ===============================
 .DS_Store
 Thumbs.db
