@@ -1,0 +1,33 @@
+# Ignore dataset directories
+train/
+test/
+valid/
+
+# Ignore trained model files
+*.keras
+*.h5
+*.pb
+*.tflite
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore logs and checkpoints
+*.log
+*.zip
+*.ckpt
+checkpoints/
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore virtual environment
+venv/
+.env/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
