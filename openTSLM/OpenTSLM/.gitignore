@@ -1,0 +1,40 @@
+venv
+__pycache__
+.DS_STORE
+**/.DS_STORE
+
+raw_data
+
+
+*.ts
+*.zip
+./__pycache__
+
+
+# Datasets
+data/
+*.csv
+*.npy
+*.npz
+*.h5
+
+# Model checkpoints
+*.pt
+*.pth
+*.bin
+*.ckpt
+
+# Results, logs, metrics
+results/
+logs/
+**/checkpoints/
+**/results/
+
+# Caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Temporary files
+.DS_Store
+__MACOSX/
