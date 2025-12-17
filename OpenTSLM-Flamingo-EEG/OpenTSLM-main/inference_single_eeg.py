@@ -115,6 +115,10 @@ Analyze the patterns in the EEG signals and classify the emotional state.
         time_series_tensors.append(channel_tensor)
         time_series_texts.append(text_prompt)
     
+    # Stack all channel tensors into a single tensor (n_channels, n_timepoints)
+    # This is what the model expects in pad_and_apply_batch
+    stacked_time_series = torch.stack(time_series_tensors)
+    
     # Create post-prompt (same as training)
     post_prompt = "Emotion classification:"
     
@@ -122,7 +126,7 @@ Analyze the patterns in the EEG signals and classify the emotional state.
     sample = {
         "pre_prompt": pre_prompt,
         "time_series_text": time_series_texts,
-        "time_series": time_series_tensors,
+        "time_series": stacked_time_series,  # Now a single stacked tensor
         "post_prompt": post_prompt,
         "answer": "",  # Empty for inference
     }
