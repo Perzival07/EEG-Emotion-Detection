@@ -16,12 +16,15 @@ import torch
 import json
 import glob
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List
 
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
 
 from inference_single_eeg import load_model, predict_emotion
 from time_series_datasets.brain_eeg.brain_eeg_loader import EMOTION_LABELS
+from model_config import INFERENCE_BATCH_SIZE, INFERENCE_NUM_WORKERS
 
 
 def batch_predict(
@@ -30,7 +33,9 @@ def batch_predict(
     emotion: str = None,
     max_samples: int = None,
     max_new_tokens: int = 50,
-    device: str = "cuda"
+    device: str = "cuda",
+    use_parallel: bool = True,
+    max_workers: int = 4
 ) -> dict:
     """
     Run batch prediction on EEG files.
@@ -79,26 +84,55 @@ def batch_predict(
         print(f"Processing {emotion_label}: {len(csv_files)} files")
         print(f"{'='*60}")
         
-        # Process each file
-        for csv_file in tqdm(csv_files, desc=f"Processing {emotion_label}"):
-            try:
-                result = predict_emotion(
-                    model=model,
-                    eeg_file_path=csv_file,
-                    max_new_tokens=max_new_tokens,
-                    device=device
-                )
+        # Process files in parallel or sequentially
+        if use_parallel and len(csv_files) > 1:
+            # Process in parallel batches
+            def process_file(csv_file):
+                try:
+                    return predict_emotion(
+                        model=model,
+                        eeg_file_path=csv_file,
+                        max_new_tokens=max_new_tokens,
+                        device=device
+                    )
+                except Exception as e:
+                    print(f"❌ Error processing {csv_file}: {e}")
+                    return None
+            
+            # Use ThreadPoolExecutor for I/O-bound operations (file reading)
+            # Note: Model inference is GPU-bound, so we process sequentially but read files in parallel
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_file, csv_file): csv_file for csv_file in csv_files}
                 
-                all_results.append(result)
-                
-                if result["is_correct"] is not None:
-                    total += 1
-                    if result["is_correct"]:
-                        correct += 1
-                        
-            except Exception as e:
-                print(f"❌ Error processing {csv_file}: {e}")
-                continue
+                for future in tqdm(as_completed(futures), total=len(csv_files), desc=f"Processing {emotion_label}"):
+                    result = future.result()
+                    if result is not None:
+                        all_results.append(result)
+                        if result["is_correct"] is not None:
+                            total += 1
+                            if result["is_correct"]:
+                                correct += 1
+        else:
+            # Sequential processing (original method)
+            for csv_file in tqdm(csv_files, desc=f"Processing {emotion_label}"):
+                try:
+                    result = predict_emotion(
+                        model=model,
+                        eeg_file_path=csv_file,
+                        max_new_tokens=max_new_tokens,
+                        device=device
+                    )
+                    
+                    all_results.append(result)
+                    
+                    if result["is_correct"] is not None:
+                        total += 1
+                        if result["is_correct"]:
+                            correct += 1
+                            
+                except Exception as e:
+                    print(f"❌ Error processing {csv_file}: {e}")
+                    continue
     
     # Calculate metrics
     accuracy = (correct / total * 100) if total > 0 else 0.0
@@ -162,6 +196,18 @@ def main():
         default="batch_inference_results.json",
         help="Output JSON file for results (default: batch_inference_results.json)"
     )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        default=True,
+        help="Use parallel processing for file I/O (default: True)"
+    )
+    parser.add_argument(
+        "--max_workers",
+        type=int,
+        default=4,
+        help="Maximum number of parallel workers for file processing (default: 4)"
+    )
     
     args = parser.parse_args()
     
@@ -186,7 +232,9 @@ def main():
         emotion=args.emotion,
         max_samples=args.max_samples,
         max_new_tokens=args.max_tokens,
-        device=device
+        device=device,
+        use_parallel=args.parallel,
+        max_workers=args.max_workers
     )
     
     # Print summary

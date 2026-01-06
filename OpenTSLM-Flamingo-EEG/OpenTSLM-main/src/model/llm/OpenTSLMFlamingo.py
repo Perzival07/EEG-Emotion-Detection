@@ -130,7 +130,7 @@ class OpenTSLMFlamingo(TimeSeriesLLM):
         model = TimeSeriesFlamingoWithTrainableEncoder(
             SimpleNamespace(visual=time_series_encoder),
             lang_encoder,
-            text_tokenizer.encode("<|endofchunk|>")[-1],
+            text_tokenizer.encode("<|endofchunk|>")[-1]
             text_tokenizer.encode("<image>")[-1],
             vis_dim=ENCODER_OUTPUT_DIM,
             cross_attn_every_n_layers=cross_attn_every_n_layers,

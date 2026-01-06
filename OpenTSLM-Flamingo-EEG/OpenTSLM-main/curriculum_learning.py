@@ -26,6 +26,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.cuda.amp import autocast, GradScaler
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import (
     CPUOffload,
@@ -55,6 +56,14 @@ from model_config import (
     PATCH_SIZE,
     WARMUP_FRAC,
     WEIGHT_DECAY,
+    NUM_WORKERS,
+    PIN_MEMORY,
+    PERSISTENT_WORKERS,
+    USE_MIXED_PRECISION,
+    MIXED_PRECISION_DTYPE,
+    GRADIENT_ACCUMULATION_STEPS,
+    VAL_BATCH_SIZE,
+    USE_TORCH_COMPILE,
 )
 
 
@@ -146,6 +155,22 @@ class CurriculumTrainer:
         self.model = self._initialize_model()
         self.results_dir = os.path.join("results", self.llm_id_safe, self.model_type)
         self._create_results_dir()
+        
+        # Initialize mixed precision scaler
+        self.use_amp = USE_MIXED_PRECISION and self.device == "cuda"
+        self.scaler = GradScaler() if self.use_amp and MIXED_PRECISION_DTYPE == "fp16" else None
+        
+        # Apply torch.compile if enabled
+        if USE_TORCH_COMPILE and hasattr(torch, "compile"):
+            if self.rank == 0:
+                print("🔧 Compiling model with torch.compile (experimental)")
+            try:
+                self.model = torch.compile(self.model, mode="reduce-overhead")
+                if self.rank == 0:
+                    print("✅ Model compilation successful")
+            except Exception as e:
+                if self.rank == 0:
+                    print(f"⚠️  Model compilation failed: {e}, continuing without compilation")
 
     def _get_device(self) -> str:
         """Get the best available device."""
@@ -321,6 +346,9 @@ class CurriculumTrainer:
                 collate_fn=lambda batch: extend_time_series_to_match_patch_size_and_aggregate(
                     batch, patch_size=patch_size
                 ),
+                num_workers=NUM_WORKERS if not dist.is_initialized() or self.rank == 0 else 0,
+                pin_memory=PIN_MEMORY and self.device == "cuda",
+                persistent_workers=PERSISTENT_WORKERS and NUM_WORKERS > 0,
             )
         else:
             return DataLoader(
@@ -330,6 +358,9 @@ class CurriculumTrainer:
                 collate_fn=lambda batch: extend_time_series_to_match_patch_size_and_aggregate(
                     batch, patch_size=patch_size
                 ),
+                num_workers=NUM_WORKERS,
+                pin_memory=PIN_MEMORY and self.device == "cuda",
+                persistent_workers=PERSISTENT_WORKERS and NUM_WORKERS > 0,
             )
 
     def _save_checkpoint(
@@ -924,6 +955,14 @@ class CurriculumTrainer:
             print(f"   Batch size per GPU: {batch_size}")
             if self.world_size > 1:
                 print(f"   Effective batch size: {batch_size * self.world_size}")
+            if GRADIENT_ACCUMULATION_STEPS > 1:
+                effective_batch = batch_size * GRADIENT_ACCUMULATION_STEPS
+                if self.world_size > 1:
+                    effective_batch *= self.world_size
+                print(f"   Effective batch size (with accumulation): {effective_batch}")
+            print(f"   DataLoader workers: {NUM_WORKERS}")
+            print(f"   Mixed precision: {USE_MIXED_PRECISION} ({MIXED_PRECISION_DTYPE if USE_MIXED_PRECISION else 'N/A'})")
+            print(f"   Gradient accumulation steps: {GRADIENT_ACCUMULATION_STEPS}")
             print()
 
         # Check if checkpoint exists when in eval_only mode
@@ -1021,6 +1060,9 @@ class CurriculumTrainer:
                     collate_fn=lambda batch: extend_time_series_to_match_patch_size_and_aggregate(
                         batch, patch_size=PATCH_SIZE
                     ),
+                    num_workers=NUM_WORKERS,
+                    pin_memory=PIN_MEMORY and self.device == "cuda",
+                    persistent_workers=PERSISTENT_WORKERS and NUM_WORKERS > 0,
                 )
         else:
             train_loader = self._merge_data_loaders(
@@ -1034,7 +1076,7 @@ class CurriculumTrainer:
         val_loader = self._merge_data_loaders(
             [dataset_class("validation", EOS_TOKEN=self._get_model().get_eos_token(), **(dataset_kwargs or {}))],
             shuffle=False,
-            batch_size=1,
+            batch_size=VAL_BATCH_SIZE,
             patch_size=PATCH_SIZE,
             distribute_data=False,  # Don't distribute validation
         )
@@ -1098,6 +1140,15 @@ class CurriculumTrainer:
                     desc=f"Epoch {epoch}/{num_epochs}",
                     disable=self.rank != 0,
                 )
+                
+                # Determine dtype for mixed precision
+                amp_dtype = None
+                if self.use_amp:
+                    if MIXED_PRECISION_DTYPE == "bf16":
+                        amp_dtype = torch.bfloat16
+                    elif MIXED_PRECISION_DTYPE == "fp16":
+                        amp_dtype = torch.float16
+                
                 for i, batch in enumerate(prog):
                     # DEBUG PRINT: Only for the first batch of the first epoch
                     if epoch == start_epoch and i == 0:
@@ -1110,27 +1161,53 @@ class CurriculumTrainer:
                                     print(
                                         f"[DEBUG] Sample key '{k}' list length: {len(v)}"
                                     )
-                        import torch
+                        # torch is already imported at the top
 
                         print(
                             torch.cuda.memory_summary()
                             if torch.cuda.is_available()
                             else "No CUDA"
                         )
-                    optimizer.zero_grad()
-                    loss = self._get_model().compute_loss(batch)
-                    loss.backward()
+                    
+                    # Zero gradients only at the start of accumulation
+                    if i % GRADIENT_ACCUMULATION_STEPS == 0:
+                        optimizer.zero_grad()
+                    
+                    # Forward pass with mixed precision
+                    if self.use_amp and amp_dtype:
+                        with autocast(dtype=amp_dtype):
+                            loss = self._get_model().compute_loss(batch)
+                        # Scale loss for gradient accumulation
+                        loss = loss / GRADIENT_ACCUMULATION_STEPS
+                        
+                        if self.scaler is not None:
+                            # FP16 requires scaler
+                            self.scaler.scale(loss).backward()
+                        else:
+                            # BF16 doesn't need scaler
+                            loss.backward()
+                    else:
+                        loss = self._get_model().compute_loss(batch)
+                        loss = loss / GRADIENT_ACCUMULATION_STEPS
+                        loss.backward()
 
-                    # Handle gradient clipping for distributed training
-                    clip_grad_norm_(self._get_model().parameters(), GRAD_CLIP_NORM)
+                    # Update weights only after accumulating gradients
+                    if (i + 1) % GRADIENT_ACCUMULATION_STEPS == 0 or (i + 1) == len(train_loader):
+                        # Handle gradient clipping for distributed training
+                        if self.scaler is not None:
+                            self.scaler.unscale_(optimizer)
+                            clip_grad_norm_(self._get_model().parameters(), GRAD_CLIP_NORM)
+                            self.scaler.step(optimizer)
+                            self.scaler.update()
+                        else:
+                            clip_grad_norm_(self._get_model().parameters(), GRAD_CLIP_NORM)
+                            optimizer.step()
+                        scheduler.step()
 
-                    optimizer.step()
-                    scheduler.step()
-
-                    running_loss += loss.item()
+                    running_loss += loss.item() * GRADIENT_ACCUMULATION_STEPS
                     if self.rank == 0:
                         prog.set_postfix(
-                            loss=f"{loss.item():.4f}",
+                            loss=f"{loss.item() * GRADIENT_ACCUMULATION_STEPS:.4f}",
                             lr=f"{scheduler.get_last_lr()[0]:.2e}",
                         )
 
@@ -1141,13 +1218,26 @@ class CurriculumTrainer:
                 # Validation
                 val_loss = 0.0
                 self.model.eval()
+                
+                # Determine dtype for mixed precision
+                amp_dtype = None
+                if self.use_amp:
+                    if MIXED_PRECISION_DTYPE == "bf16":
+                        amp_dtype = torch.bfloat16
+                    elif MIXED_PRECISION_DTYPE == "fp16":
+                        amp_dtype = torch.float16
+                
                 with torch.no_grad():
                     for batch in tqdm(
                         val_loader,
                         desc=f"Validating {stage_name}",
                         disable=self.rank != 0,
                     ):
-                        val_loss += self._get_model().compute_loss(batch).item()
+                        if self.use_amp and amp_dtype:
+                            with autocast(dtype=amp_dtype):
+                                val_loss += self._get_model().compute_loss(batch).item()
+                        else:
+                            val_loss += self._get_model().compute_loss(batch).item()
 
                 avg_val_loss = val_loss / len(val_loader)
 
