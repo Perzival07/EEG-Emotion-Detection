@@ -6,6 +6,14 @@
 dataset/
 *.zip
 
+# EEG-comparative analysis: raw datasets (download separately, see
+# "EEG-comparative analysis/README.md" for links) and regenerable feature
+# caches -- too large for Git (multi-GB, some files exceed GitHub's 100MB
+# per-file limit).
+EEG-comparative analysis/deap-dataset/
+EEG-comparative analysis/seed-dataset/
+EEG-comparative analysis/processed_cache/
+
 # Model files (trained weights & metadata)
 *.keras
 *.h5
