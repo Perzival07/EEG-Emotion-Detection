@@ -16,11 +16,12 @@ the paths below.
 
 | Dataset | Link | Place at |
 |---|---|---|
-| DEAP (preprocessed Python `.dat` files) | <http://www.eecs.qmul.ac.uk/mmv/datasets/deap/> (registration/EULA required) | `deap-dataset/data_preprocessed_python/` |
+| DEAP (preprocessed Python `.dat` files, Kaggle mirror -- what this project actually used) | <https://www.kaggle.com/datasets/manh123df/deap-dataset> | `deap-dataset/data_preprocessed_python/` |
+| DEAP (official source; registration/EULA required -- currently returning HTTP 503, verify before relying on it) | <https://www.eecs.qmul.ac.uk/mmv/datasets/deap/> | `deap-dataset/data_preprocessed_python/` |
 | SEED-IV (Kaggle mirror, no agreement required) | <https://www.kaggle.com/datasets/phhasian0710/seed-iv> | `seed-dataset/` |
 | SEED (original, 3-class) -- not used here | requires a signed BCMI data-use agreement | -- |
-| DREAMER -- not used here | <https://ieee-dataport.org/open-access/dreamer> | -- |
-| AMIGOS -- not used here | <http://www.eecs.qmul.ac.uk/mmv/datasets/amigos/> | -- |
+| DREAMER -- not used here | <https://zenodo.org/records/546113> (access-request form on the record page) | -- |
+| AMIGOS -- not used here | <https://www.eecs.qmul.ac.uk/mmv/datasets/amigos/> (currently returning HTTP 503, verify before relying on it) | -- |
 
 `processed_cache/` (cached `.npz` feature/window builds) is regenerated
 automatically the first time the relevant notebook cell or script runs against
